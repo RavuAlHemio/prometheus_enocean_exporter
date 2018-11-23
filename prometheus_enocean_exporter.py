@@ -13,6 +13,7 @@ import yaml
 
 
 LOGGER = logging.getLogger('prometheus_enocean_exporter')
+DEFAULT_MAX_VALUE_AGE_S = 15.0 * 60.0
 
 
 class EnOceanCollector:
@@ -20,7 +21,7 @@ class EnOceanCollector:
         self.serial_port: Optional[str] = None
         self.known_device_file: Optional[str] = None
         self.learning: bool = True
-        self.max_value_age_s: float = 15.0*60.0
+        self.max_value_age_s: float = DEFAULT_MAX_VALUE_AGE_S
 
         self._data_lock = Lock()
 
@@ -179,6 +180,10 @@ def main():
     parser.add_argument("--web.listen-address", dest='web_listen_address', type=str, default="")
     parser.add_argument("--serial.port", dest='serial_port', type=str, default=None)
     parser.add_argument("--config.known-device-file", dest='known_device_file', type=str, default=None)
+    parser.add_argument(
+        "--config.max-value-age",
+        dest='max_value_age', metavar='SECONDS', type=float, default=DEFAULT_MAX_VALUE_AGE_S
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG)
@@ -192,6 +197,7 @@ def main():
     enocean_collector = EnOceanCollector()
     enocean_collector.serial_port = args.serial_port
     enocean_collector.known_device_file = args.known_device_file
+    enocean_collector.max_value_age_s = args.max_value_age
     REGISTRY.register(enocean_collector)
 
     start_http_server(args.web_listen_port, args.web_listen_address)
