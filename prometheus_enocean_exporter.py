@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 import logging
 import queue
 from threading import Lock
@@ -12,8 +12,15 @@ from prometheus_client.core import GaugeMetricFamily
 import yaml
 
 
+ValueAtTime = namedtuple('ValueAtTime', ('value', 'timestamp'))
+
+
 LOGGER = logging.getLogger('prometheus_enocean_exporter')
 DEFAULT_MAX_VALUE_AGE_S = 15.0 * 60.0
+
+
+def obtain_timestamp() -> float:
+    return time.monotonic()
 
 
 class EnOceanCollector:
@@ -26,10 +33,13 @@ class EnOceanCollector:
         self._data_lock = Lock()
 
         # SenderID -> (RorgFunc, RorgType)
-        self.known_4bs_eeps: Dict[int, Tuple[int, int]] = {}
+        self.known_4bs_eeps: Dict[str, Tuple[int, int]] = {}
 
         # SenderID -> ValueShortcut -> value
-        self.values: DefaultDict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
+        self.values: DefaultDict[str, Dict[str, Dict[str, Any]]] = defaultdict(dict)
+
+        # SenderID -> dBm
+        self.sender_dbm: Dict[str, ValueAtTime] = {}
 
 
     def collect(self) -> Iterable[Metric]:
@@ -53,9 +63,17 @@ class EnOceanCollector:
             'The unit for a value obtained from an EnOcean device.',
             labels=['source', 'key', 'unit'],
         )
+        dbm_metric = GaugeMetricFamily(
+            'enocean_last_transmission_dBm',
+            (
+                'The strength of the last transmission of an EnOcean device'
+                ' in decibels referenced to one milliwatt (dBm).'
+            ),
+            labels=['source'],
+        )
 
         with self._data_lock:
-            now = time.monotonic()
+            now = obtain_timestamp()
             for sender, shortcut_valdict in self.values.items():
                 for shortcut, valdict in shortcut_valdict.items():
                     if now - valdict['timestamp'] > self.max_value_age_s:
@@ -75,11 +93,19 @@ class EnOceanCollector:
                     value_unit_metric.add_metric(
                         [sender, shortcut, valdict['unit']], 1,
                     )
+            for sender, dbm_at_time in self.sender_dbm.items():
+                if now - dbm_at_time.timestamp > self.max_value_age_s:
+                    # value has aged out
+                    continue
+                dbm_metric.add_metric(
+                    [sender], dbm_at_time.value
+                )
 
         yield value_metric
         yield raw_value_metric
         yield value_description_metric
         yield value_unit_metric
+        yield dbm_metric
 
 
     def _load_known_devices(self) -> None:
@@ -122,6 +148,14 @@ class EnOceanCollector:
 
                 LOGGER.debug('obtained packet: %s', packet)
 
+                sender_hex = getattr(packet, 'sender_hex', None)
+                dbm = getattr(packet, 'dBm', None)
+                if sender_hex is not None and dbm is not None:
+                    with self._data_lock:
+                        self.sender_dbm[sender_hex] = ValueAtTime(
+                            value=dbm, timestamp=obtain_timestamp()
+                        )
+
                 if packet.learn:
                     # new device to learn
                     if not self.learning:
@@ -163,7 +197,7 @@ class EnOceanCollector:
 
                 # add timestamps
                 for val in packet.parsed.values():
-                    val['timestamp'] = time.monotonic()
+                    val['timestamp'] = obtain_timestamp()
 
                 with self._data_lock:
                     self.values[packet.sender_hex].update(packet.parsed)
