@@ -193,7 +193,7 @@ class EnOceanCollector:
                 rorg_func, rorg_type = rorg_func_type
 
                 packet.parse_eep(rorg_func, rorg_type)
-                print(repr(packet.parsed))
+                LOGGER.debug("parsed packet: %r", packet.parsed)
 
                 # add timestamps
                 for val in packet.parsed.values():
