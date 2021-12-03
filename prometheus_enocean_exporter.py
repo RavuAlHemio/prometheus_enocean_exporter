@@ -201,8 +201,7 @@ class EnOceanCollector:
 
                 with self._data_lock:
                     self.values[packet.sender_hex].update(packet.parsed)
-
-                LOGGER.debug("values for %s updated", packet.sender_hex)
+                    LOGGER.debug("values for %s updated to %r", packet.sender_hex, self.values[packet.sender_hex])
 
         finally:
             cereal.stop()
