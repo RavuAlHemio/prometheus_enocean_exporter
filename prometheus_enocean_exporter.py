@@ -1,26 +1,40 @@
 #!/usr/bin/env python3
 import argparse
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 import logging
 import queue
 from threading import Lock
 import time
-from typing import Any, DefaultDict, Dict, Iterable, Optional, Tuple
+from typing import Any, DefaultDict, Dict, Iterable, NamedTuple, Optional, Tuple
 from enocean.communicators.serialcommunicator import SerialCommunicator
 from prometheus_client import Metric, REGISTRY, start_http_server
 from prometheus_client.core import GaugeMetricFamily
 import yaml
 
 
-ValueAtTime = namedtuple('ValueAtTime', ('value', 'timestamp'))
+class MetaValueAtTime(NamedTuple):
+    value: Any
+    mono_timestamp: float
+    unix_timestamp: float
+
+
+class ValueAtTime(NamedTuple):
+    meta: MetaValueAtTime
+    raw_value: float
+    description: str
+    unit: str
 
 
 LOGGER = logging.getLogger('prometheus_enocean_exporter')
 DEFAULT_MAX_VALUE_AGE_S = 15.0 * 60.0
 
 
-def obtain_timestamp() -> float:
+def obtain_mono_timestamp() -> float:
     return time.monotonic()
+
+
+def obtain_unix_timestamp() -> float:
+    return time.time()
 
 
 class EnOceanCollector:
@@ -36,10 +50,10 @@ class EnOceanCollector:
         self.known_4bs_eeps: Dict[str, Tuple[int, int]] = {}
 
         # SenderID -> ValueShortcut -> value
-        self.values: DefaultDict[str, Dict[str, Dict[str, Any]]] = defaultdict(dict)
+        self.values: DefaultDict[str, Dict[str, ValueAtTime]] = defaultdict(dict)
 
         # SenderID -> dBm
-        self.sender_dbm: Dict[str, ValueAtTime] = {}
+        self.sender_dbm: Dict[str, MetaValueAtTime] = {}
 
 
     def collect(self) -> Iterable[Metric]:
@@ -63,6 +77,14 @@ class EnOceanCollector:
             'The unit for a value obtained from an EnOcean device.',
             labels=['source', 'key', 'unit'],
         )
+        value_timestamp_metric = GaugeMetricFamily(
+            'enocean_value_timestamp',
+            (
+                'The Unix timestamp of the last update of a value obtained from'
+                ' an EnOcean device.'
+            ),
+            labels=['source', 'key'],
+        )
         dbm_metric = GaugeMetricFamily(
             'enocean_last_transmission_dBm',
             (
@@ -71,41 +93,57 @@ class EnOceanCollector:
             ),
             labels=['source'],
         )
+        transmission_timestamp_metric = GaugeMetricFamily(
+            'enocean_last_transmission_timestamp',
+            (
+                'The Unix timestamp of the last transmission of an EnOcean'
+                ' device.'
+            ),
+            labels=['source'],
+        )
 
         with self._data_lock:
-            now = obtain_timestamp()
-            for sender, shortcut_valdict in self.values.items():
-                for shortcut, valdict in shortcut_valdict.items():
-                    if now - valdict['timestamp'] > self.max_value_age_s:
+            mono_now = obtain_mono_timestamp()
+            for sender, shortcut_value in self.values.items():
+                for shortcut, value in shortcut_value.items():
+                    if mono_now - value.meta.mono_timestamp > self.max_value_age_s:
                         # value has aged out
                         continue
+                    value_timestamp_metric.add_metric(
+                        [sender, shortcut], value.meta.unix_timestamp,
+                    )
 
-                    if isinstance(valdict['value'], (int, float)):
+                    if isinstance(value.meta.value, (int, float)):
                         value_metric.add_metric(
-                            [sender, shortcut], valdict['value'],
+                            [sender, shortcut], value.meta.value,
                         )
                     raw_value_metric.add_metric(
-                        [sender, shortcut], valdict['raw_value'],
+                        [sender, shortcut], value.raw_value,
                     )
                     value_description_metric.add_metric(
-                        [sender, shortcut, valdict['description']], 1,
+                        [sender, shortcut, value.description], 1,
                     )
                     value_unit_metric.add_metric(
-                        [sender, shortcut, valdict['unit']], 1,
+                        [sender, shortcut, value.unit], 1,
                     )
             for sender, dbm_at_time in self.sender_dbm.items():
-                if now - dbm_at_time.timestamp > self.max_value_age_s:
+                if mono_now - dbm_at_time.mono_timestamp > self.max_value_age_s:
                     # value has aged out
                     continue
                 dbm_metric.add_metric(
                     [sender], dbm_at_time.value
+                )
+                transmission_timestamp_metric.add_metric(
+                    [sender], dbm_at_time.unix_timestamp,
                 )
 
         yield value_metric
         yield raw_value_metric
         yield value_description_metric
         yield value_unit_metric
+        yield value_timestamp_metric
         yield dbm_metric
+        yield transmission_timestamp_metric
 
 
     def _load_known_devices(self) -> None:
@@ -152,8 +190,10 @@ class EnOceanCollector:
                 dbm = getattr(packet, 'dBm', None)
                 if sender_hex is not None and dbm is not None:
                     with self._data_lock:
-                        self.sender_dbm[sender_hex] = ValueAtTime(
-                            value=dbm, timestamp=obtain_timestamp()
+                        self.sender_dbm[sender_hex] = MetaValueAtTime(
+                            value=dbm,
+                            mono_timestamp=obtain_mono_timestamp(),
+                            unix_timestamp=obtain_unix_timestamp(),
                         )
 
                 if packet.learn:
@@ -196,11 +236,21 @@ class EnOceanCollector:
                 LOGGER.debug("parsed packet: %r", packet.parsed)
 
                 # add timestamps
-                for val in packet.parsed.values():
-                    val['timestamp'] = obtain_timestamp()
+                shortcut_to_value: Dict[str, ValueAtTime] = {}
+                for short, val in packet.parsed.items():
+                    shortcut_to_value[short] = ValueAtTime(
+                        meta=MetaValueAtTime(
+                            value=val['value'],
+                            mono_timestamp=obtain_mono_timestamp(),
+                            unix_timestamp=obtain_unix_timestamp(),
+                        ),
+                        raw_value=val['raw_value'],
+                        description=val['description'],
+                        unit=val['unit'],
+                    )
 
                 with self._data_lock:
-                    self.values[packet.sender_hex].update(packet.parsed)
+                    self.values[packet.sender_hex].update(shortcut_to_value)
                     LOGGER.debug("values for %s updated to %r", packet.sender_hex, self.values[packet.sender_hex])
 
         finally:
