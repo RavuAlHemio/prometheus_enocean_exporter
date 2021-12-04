@@ -154,7 +154,9 @@ class EnOceanCollector:
         try:
             with open(self.known_device_file, 'r', encoding='utf-8') as f:
                 known_devices = yaml.safe_load(f)
-                self.known_4bs_eeps.update(known_devices.get('known_4bs_eeps', {}))
+                self.known_4bs_eeps.update(
+                    known_devices.get('known_4bs_eeps', {}),
+                )
         except FileNotFoundError:
             pass
 
@@ -251,7 +253,10 @@ class EnOceanCollector:
 
                 with self._data_lock:
                     self.values[packet.sender_hex].update(shortcut_to_value)
-                    LOGGER.debug("values for %s updated to %r", packet.sender_hex, self.values[packet.sender_hex])
+                    LOGGER.debug(
+                        "values for %s updated to %r",
+                        packet.sender_hex, self.values[packet.sender_hex],
+                    )
 
         finally:
             cereal.stop()
@@ -259,13 +264,26 @@ class EnOceanCollector:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--web.listen-port", dest='web_listen_port', type=int, required=True)
-    parser.add_argument("--web.listen-address", dest='web_listen_address', type=str, default="")
-    parser.add_argument("--serial.port", dest='serial_port', type=str, default=None)
-    parser.add_argument("--config.known-device-file", dest='known_device_file', type=str, default=None)
+    parser.add_argument(
+        "--web.listen-port",
+        dest='web_listen_port', type=int, required=True,
+    )
+    parser.add_argument(
+        "--web.listen-address",
+        dest='web_listen_address', type=str, default="",
+    )
+    parser.add_argument(
+        "--serial.port",
+        dest='serial_port', type=str, default=None,
+    )
+    parser.add_argument(
+        "--config.known-device-file",
+        dest='known_device_file', type=str, default=None,
+    )
     parser.add_argument(
         "--config.max-value-age",
-        dest='max_value_age', metavar='SECONDS', type=float, default=DEFAULT_MAX_VALUE_AGE_S
+        dest='max_value_age', metavar='SECONDS', type=float,
+        default=DEFAULT_MAX_VALUE_AGE_S
     )
     args = parser.parse_args()
 
