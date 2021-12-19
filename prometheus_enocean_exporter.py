@@ -226,8 +226,8 @@ class EnOceanCollector:
                         )
 
                     LOGGER.info(
-                        "learned that sender %s has ROrg func 0x%02x type 0x%02x",
-                        packet.sender_hex, packet.rorg_func, packet.rorg_type
+                        "learned via ROrg 0x%02x that sender %s has func 0x%02x type 0x%02x",
+                        packet.rorg, packet.sender_hex, packet.rorg_func, packet.rorg_type
                     )
 
                     # update known-device file
