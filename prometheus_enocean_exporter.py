@@ -7,6 +7,7 @@ from threading import Lock
 import time
 from typing import Any, DefaultDict, Dict, Iterable, NamedTuple, Optional, Tuple
 from enocean.communicators.serialcommunicator import SerialCommunicator
+from enocean.protocol.constants import RORG
 from prometheus_client import Metric, REGISTRY, start_http_server
 from prometheus_client.core import GaugeMetricFamily
 import yaml
@@ -206,7 +207,7 @@ class EnOceanCollector:
                             unix_timestamp=obtain_unix_timestamp(),
                         )
 
-                if packet.learn:
+                if packet.learn and packet.rorg != RORG.VLD:
                     # new device to learn
                     if not self.learning:
                         # but we don't want to
