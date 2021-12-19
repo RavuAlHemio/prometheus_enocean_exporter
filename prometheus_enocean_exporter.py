@@ -193,8 +193,12 @@ class EnOceanCollector:
                 LOGGER.debug('obtained packet: %s', packet)
 
                 sender_hex = getattr(packet, 'sender_hex', None)
+                if sender_hex is None:
+                    LOGGER.debug('no sender_hex; skipping packet')
+                    continue
+
                 dbm = getattr(packet, 'dBm', None)
-                if sender_hex is not None and dbm is not None:
+                if dbm is not None:
                     with self._data_lock:
                         self.sender_dbm[sender_hex] = MetaValueAtTime(
                             value=dbm,
