@@ -178,6 +178,10 @@ class EnOceanCollector:
         cereal = SerialCommunicator(port=self.serial_port)
         cereal.start()
 
+        # pre-obtain the base ID
+        base_id = cereal.base_id
+        LOGGER.info("communicator base ID: %s", base_id)
+
         try:
             LOGGER.info("ready to read")
             while cereal.is_alive():
