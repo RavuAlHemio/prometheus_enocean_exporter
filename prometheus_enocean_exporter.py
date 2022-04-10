@@ -296,6 +296,11 @@ def main():
     )
     args = parser.parse_args()
 
+    # empty string now raises exceptions; fold it to None
+    # (keep accepting empty strings to allow args --web.listen-address "")
+    if not args.web_listen_address:
+        args.web_listen_address = None
+
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger('enocean').setLevel(logging.WARNING)
 
