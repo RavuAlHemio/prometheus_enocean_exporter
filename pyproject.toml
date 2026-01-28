@@ -1,0 +1,19 @@
+[project]
+name = "prometheus-enocean-exporter"
+version = "0.1.0"
+license = "CC0-1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "enocean>=0.60.1",
+    "prometheus-client>=0.24.1",
+    "pyyaml>=6.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pylint>=4.0.4",
+    "ruff>=0.14.14",
+    "ty>=0.0.14",
+    "types-pyyaml>=6.0.12.20250915",
+]
